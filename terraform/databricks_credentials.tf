@@ -1,12 +1,13 @@
 # =============================================================================
 # Databricks Credentials for Lakehouse Federation
 #
-# 1. Service Credential  -> wraps Glue API IAM role
-# 2. Storage Credential  -> wraps S3 read IAM role
+# IMPORTANT: Credentials are created BEFORE IAM roles.
+# The role ARN is constructed as a string (not referencing aws_iam_role)
+# to break the circular dependency. Databricks auto-generates the
+# external_id, which is then used to create the IAM trust policy.
 #
-# NOTE: databricks_credential (unified) requires provider >= 1.58
-#       If your provider version doesn't support it, use the
-#       Databricks UI or REST API to create the service credential.
+# Pattern from official Terraform guide:
+# https://registry.terraform.io/providers/databricks/databricks/latest/docs/guides/unity-catalog
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -19,7 +20,8 @@ resource "databricks_credential" "glue_service" {
   purpose = "SERVICE"
 
   aws_iam_role {
-    role_arn = aws_iam_role.databricks_glue.arn
+    # Constructed ARN - IAM role is created AFTER this credential
+    role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.glue_role_name}"
   }
 
   comment = "Service credential for AWS Glue API access (Lakehouse Federation demo)"
@@ -34,7 +36,8 @@ resource "databricks_storage_credential" "glue_storage" {
   name = "${var.project_prefix}-glue-storage-cred"
 
   aws_iam_role {
-    role_arn = aws_iam_role.databricks_storage.arn
+    # Constructed ARN - IAM role is created AFTER this credential
+    role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.storage_role_name}"
   }
 
   comment = "Storage credential for Glue S3 data access (Lakehouse Federation demo)"

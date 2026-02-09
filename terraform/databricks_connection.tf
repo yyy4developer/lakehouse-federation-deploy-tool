@@ -13,7 +13,7 @@ resource "databricks_connection" "glue" {
 
   options = {
     aws_region     = var.aws_region
-    aws_account_id = var.aws_account_id
+    aws_account_id = data.aws_caller_identity.current.account_id
     credential     = databricks_credential.glue_service.name
   }
 

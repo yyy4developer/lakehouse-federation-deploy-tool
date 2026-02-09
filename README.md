@@ -77,27 +77,7 @@ aws sts get-caller-identity
 
 > **重要**: トークンは一度しか表示されません。安全な場所に保存してください。
 
-### Step 3: Databricks Unity Catalog の AWS Account ID / External ID の取得
-
-Glue Federation 用の IAM ロールの trust policy に、Databricks Unity Catalog の AWS アカウント情報が必要です。
-
-**取得方法:**
-
-1. Databricks ワークスペースにログイン
-2. 左メニュー → **Catalog** をクリック
-3. **External data >** ボタン → **Credentials** タブをクリック
-4. **Create credential** をクリック
-5. **Credential type**: `Service credential` を選択
-6. **Purpose**: `AWS Glue` を選択
-7. 表示される **IAM role creation** のダイアログに以下が記載されています:
-   - **Databricks AWS Account ID** (例: `414351767826`)
-   - **External ID** (例: `databricks-XXXXXX-YYYY`)
-8. これらの値をメモ（**まだ credential は作成しない** - Terraform が作成します）
-9. ダイアログを **Cancel** で閉じる
-
-> これらの値を `terraform.tfvars` の `databricks_unity_catalog_aws_account_id` と `databricks_external_id` に設定します。
-
-### Step 4: terraform.tfvars の設定
+### Step 3: terraform.tfvars の設定
 
 ```bash
 cd terraform
@@ -107,22 +87,18 @@ cp terraform.tfvars.example terraform.tfvars
 `terraform.tfvars` を編集して実際の値を入力:
 
 ```hcl
-# AWS
-aws_account_id = "123456789012"    # aws sts get-caller-identity で確認
-
 # Databricks
 databricks_host  = "https://e2-demo-field-eng.cloud.databricks.com"
 databricks_token = "dapi..."       # Step 2 で発行したトークン
-
-# Unity Catalog AWS integration (Step 3 で取得)
-databricks_unity_catalog_aws_account_id = "414351767826"
-databricks_external_id                  = "databricks-XXXXXX-YYYY"
 
 # Redshift
 redshift_admin_password = "MySecurePass123!"
 ```
 
-### Step 5: デプロイ
+> **NOTE**: AWS Account ID は `aws sts get-caller-identity` から自動取得されます。
+> IAM ロールの External ID も Databricks が自動生成するため、手動入力は不要です。
+
+### Step 4: デプロイ
 
 ```bash
 cd terraform
@@ -149,7 +125,7 @@ Outputs:
   ...
 ```
 
-### Step 6: デモ実行
+### Step 5: デモ実行
 
 1. Databricks ワークスペースにログイン
 2. 左メニュー → **Workspace** をクリック
@@ -196,8 +172,8 @@ terraform destroy
 ## トラブルシューティング
 
 ### "Cannot assume role" エラー
-- `terraform.tfvars` の `databricks_unity_catalog_aws_account_id` と `databricks_external_id` が正しいか確認
 - IAM ロールの trust policy が正しく設定されているか AWS Console で確認
+- `terraform apply` を再実行して IAM ロールの trust policy が最新の external_id を使っているか確認
 
 ### "Connection test failed" (Redshift)
 - Redshift Serverless のワークグループが AVAILABLE 状態か確認
@@ -225,8 +201,10 @@ terraform destroy
 
 ### `databricks_credential` リソースでエラー
 - Databricks Terraform provider のバージョンが 1.58 以上であることを確認
-- それでもエラーが出る場合は、Databricks UI から手動で Service Credential を作成し、
-  `databricks_credential` リソースを Terraform state から除外してください
+- `databricks_credential` が未サポートの場合は provider を最新版にアップデート:
+  `terraform init -upgrade`
+- それでもエラーが出る場合は、Databricks UI (Catalog > External data > Credentials)
+  から手動で Service Credential を作成し、Terraform state から除外してください
 
 ## ファイル構成
 
