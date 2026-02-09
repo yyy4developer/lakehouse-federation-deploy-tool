@@ -55,3 +55,18 @@ output "databricks_redshift_connection" {
   description = "Databricks connection name for Redshift"
   value       = databricks_connection.redshift.name
 }
+
+output "databricks_glue_service_credential" {
+  description = "Databricks service credential name for Glue API access"
+  value       = databricks_credential.glue_service.name
+}
+
+output "databricks_glue_storage_credential" {
+  description = "Databricks storage credential name for S3 data access"
+  value       = databricks_storage_credential.glue_storage.name
+}
+
+output "databricks_external_location" {
+  description = "Databricks external location name for Glue data"
+  value       = databricks_external_location.glue_data.name
+}
