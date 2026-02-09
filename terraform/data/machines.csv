@@ -1,0 +1,11 @@
+machine_id,machine_name,production_line,factory,status
+1,CNC-Mill-01,Line-A,Tokyo-Plant,active
+2,CNC-Mill-02,Line-A,Tokyo-Plant,active
+3,CNC-Lathe-01,Line-A,Tokyo-Plant,active
+4,Assembly-Robot-01,Line-B,Tokyo-Plant,active
+5,Assembly-Robot-02,Line-B,Tokyo-Plant,maintenance
+6,Welding-Station-01,Line-B,Tokyo-Plant,active
+7,Press-Machine-01,Line-C,Osaka-Plant,active
+8,Press-Machine-02,Line-C,Osaka-Plant,active
+9,Inspection-Unit-01,Line-C,Osaka-Plant,active
+10,Packaging-Unit-01,Line-C,Osaka-Plant,inactive

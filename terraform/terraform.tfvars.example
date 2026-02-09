@@ -1,0 +1,23 @@
+# =============================================================================
+# Copy this file to terraform.tfvars and fill in actual values:
+#   cp terraform.tfvars.example terraform.tfvars
+# =============================================================================
+
+# General
+project_prefix = "lhf-demo"
+
+# AWS
+aws_region     = "us-west-2"
+aws_account_id = "123456789012"    # Your AWS Account ID
+
+# Databricks
+databricks_host  = "https://e2-demo-field-eng.cloud.databricks.com"
+databricks_token = "dapi..."       # See README: Step 2 - Databricks PAT
+
+# Databricks Unity Catalog AWS integration
+# See README: Step 3 - How to obtain these values
+databricks_unity_catalog_aws_account_id = ""   # Databricks' own AWS Account ID
+databricks_external_id                  = ""   # External ID from UC
+
+# Redshift
+redshift_admin_password = "ChangeMe123!"   # Must include uppercase, lowercase, number
