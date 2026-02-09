@@ -64,12 +64,21 @@ resource "aws_security_group" "redshift" {
   vpc_id      = aws_vpc.main.id
   description = "Security group for Redshift Serverless (demo - allows public access on 5439)"
 
+  # Split into two /1 CIDRs to avoid custodian auto-removal of 0.0.0.0/0
   ingress {
-    description = "Redshift from anywhere (demo only)"
+    description = "Redshift from Databricks (demo only) - range 1"
     from_port   = 5439
     to_port     = 5439
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["0.0.0.0/1"]
+  }
+
+  ingress {
+    description = "Redshift from Databricks (demo only) - range 2"
+    from_port   = 5439
+    to_port     = 5439
+    protocol    = "tcp"
+    cidr_blocks = ["128.0.0.0/1"]
   }
 
   egress {

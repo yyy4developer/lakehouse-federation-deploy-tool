@@ -69,8 +69,8 @@ resource "aws_iam_role_policy" "glue_access" {
         Resource = [
           "arn:aws:glue:${var.aws_region}:${local.aws_account_id}:catalog",
           "arn:aws:glue:${var.aws_region}:${local.aws_account_id}:catalog*",
-          "arn:aws:glue:${var.aws_region}:${local.aws_account_id}:database/${local.glue_database_name}",
-          "arn:aws:glue:${var.aws_region}:${local.aws_account_id}:table/${local.glue_database_name}/*",
+          "arn:aws:glue:${var.aws_region}:${local.aws_account_id}:database/*",
+          "arn:aws:glue:${var.aws_region}:${local.aws_account_id}:table/*/*",
         ]
       },
       {

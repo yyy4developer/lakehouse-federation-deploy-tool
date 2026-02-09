@@ -159,7 +159,7 @@ SELECT
   r.status AS reading_status
 FROM glue_factory.lhf_demo_factory_master.sensors s
 JOIN redshift_factory.public.sensor_readings r
-  ON CAST(s.sensor_id AS INT) = r.sensor_id
+  ON try_cast(s.sensor_id AS INT) = r.sensor_id
 WHERE r.status IN ('warning', 'critical')
 ORDER BY r.reading_time DESC;
 
@@ -184,7 +184,7 @@ SELECT
   e.description
 FROM glue_factory.lhf_demo_factory_master.machines m
 JOIN redshift_factory.public.production_events e
-  ON CAST(m.machine_id AS INT) = e.machine_id
+  ON try_cast(m.machine_id AS INT) = e.machine_id
 WHERE e.event_type IN ('error', 'maintenance')
 ORDER BY e.event_time DESC;
 
@@ -210,9 +210,9 @@ SELECT
   r.status AS reading_status
 FROM glue_factory.lhf_demo_factory_master.machines m
 JOIN redshift_factory.public.sensor_readings r
-  ON CAST(m.machine_id AS INT) = r.machine_id
+  ON try_cast(m.machine_id AS INT) = r.machine_id
 JOIN glue_factory.lhf_demo_factory_master.sensors s
-  ON r.sensor_id = CAST(s.sensor_id AS INT)
+  ON r.sensor_id = try_cast(s.sensor_id AS INT)
 WHERE r.status != 'normal'
 ORDER BY m.production_line, r.reading_time DESC;
 
@@ -238,7 +238,7 @@ SELECT
   ) AS anomaly_rate_pct
 FROM glue_factory.lhf_demo_factory_master.machines m
 JOIN redshift_factory.public.sensor_readings r
-  ON CAST(m.machine_id AS INT) = r.machine_id
+  ON try_cast(m.machine_id AS INT) = r.machine_id
 GROUP BY m.machine_name, m.production_line, m.factory
 ORDER BY critical_count DESC, warning_count DESC;
 
@@ -261,7 +261,7 @@ SELECT
   ROUND(SUM(e.duration_minutes) / 60.0, 1) AS total_downtime_hours
 FROM glue_factory.lhf_demo_factory_master.machines m
 JOIN redshift_factory.public.production_events e
-  ON CAST(m.machine_id AS INT) = e.machine_id
+  ON try_cast(m.machine_id AS INT) = e.machine_id
 WHERE e.event_type IN ('error', 'maintenance')
   AND e.duration_minutes IS NOT NULL
 GROUP BY m.production_line, m.factory, e.event_type

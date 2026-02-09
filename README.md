@@ -143,10 +143,11 @@ Outputs:
 ### Cross-source JOIN (Glue + Redshift)
 ```sql
 -- センサーマスタ (Glue) + センサー読取値 (Redshift)
+-- ※ Glue の OpenCSVSerde は全カラムを STRING で返すため try_cast を使用
 SELECT s.sensor_name, s.sensor_type, r.value, r.status
 FROM glue_factory.lhf_demo_factory_master.sensors s
 JOIN redshift_factory.public.sensor_readings r
-  ON CAST(s.sensor_id AS INT) = r.sensor_id
+  ON try_cast(s.sensor_id AS INT) = r.sensor_id
 WHERE r.status IN ('warning', 'critical');
 ```
 
@@ -155,8 +156,8 @@ WHERE r.status IN ('warning', 'critical');
 -- machines (Glue) + sensor_readings (Redshift) + sensors (Glue) + production_events (Redshift)
 SELECT m.machine_name, s.sensor_name, r.value, r.status
 FROM glue_factory.lhf_demo_factory_master.machines m
-JOIN redshift_factory.public.sensor_readings r ON CAST(m.machine_id AS INT) = r.machine_id
-JOIN glue_factory.lhf_demo_factory_master.sensors s ON r.sensor_id = CAST(s.sensor_id AS INT)
+JOIN redshift_factory.public.sensor_readings r ON try_cast(m.machine_id AS INT) = r.machine_id
+JOIN glue_factory.lhf_demo_factory_master.sensors s ON r.sensor_id = try_cast(s.sensor_id AS INT)
 WHERE r.status != 'normal';
 ```
 
@@ -175,19 +176,37 @@ terraform destroy
 - IAM ロールの trust policy が正しく設定されているか AWS Console で確認
 - `terraform apply` を再実行して IAM ロールの trust policy が最新の external_id を使っているか確認
 
-### "Connection test failed" (Redshift)
+### "Connection test failed" / "Failed to connect" (Redshift)
 - Redshift Serverless のワークグループが AVAILABLE 状態か確認
 - Security Group で 5439 ポートが開いているか確認
 - `redshift_admin_password` が正しいか確認
+- **Custodian に注意**: 共有 AWS アカウントでは `0.0.0.0/0` の ingress ルールが自動削除される場合があります。
+  その場合は `terraform apply` で再適用してください（本デモでは `/1` CIDR に分割して回避しています）
 
 ### "External location validation failed"
 - Storage Credential の IAM ロールが S3 バケットへの read アクセス権を持っているか確認
 - S3 バケットに CSV ファイルがアップロードされているか確認
 
+### "Insufficient Lake Formation permission(s)" (Glue)
+- AWS Lake Formation が有効なアカウントでは、IAM ポリシーに加えて Lake Formation 権限が必要です
+- `CreateDatabaseDefaultPermissions` が空の場合、作成した Glue データベースに `IAM_ALLOWED_PRINCIPALS` を手動で付与する必要があります
+  ```bash
+  aws lakeformation grant-permissions \
+    --principal '{"DataLakePrincipalIdentifier":"IAM_ALLOWED_PRINCIPALS"}' \
+    --resource '{"Database":{"Name":"lhf_demo_factory_master"}}' \
+    --permissions "ALL"
+  ```
+- Terraform の `aws_lakeformation_permissions` リソースで自動管理されます
+
 ### "Table not found" (Glue)
 - Glue Database とテーブルが AWS Console で確認できるか確認
 - Glue テーブルの S3 ロケーションが正しいか確認
 - Foreign Catalog の `authorized_paths` が S3 パスをカバーしているか確認
+
+### CAST エラー (Glue テーブル)
+- Glue の `OpenCSVSerde` は全カラムを STRING として返します
+- ヘッダー行もデータとして読まれるため、`CAST` ではなく `try_cast` を使用してください
+- `try_cast` は変換できない値を NULL にし、JOIN で自動的に除外されます
 
 ### Redshift テーブルにデータがない
 - `aws_redshiftdata_statement` が正常完了したか確認:
@@ -225,6 +244,7 @@ lakehouse_federation/
 │   ├── databricks_external.tf     # External Location
 │   ├── databricks_connection.tf   # Connections (Glue, Redshift)
 │   ├── databricks_catalog.tf      # Foreign Catalogs
+│   ├── aws_lakeformation.tf      # Lake Formation権限 (IAM_ALLOWED_PRINCIPALS)
 │   ├── data/
 │   │   ├── sensors.csv            # センサーマスタ (20行)
 │   │   └── machines.csv           # 機械マスタ (10行)
