@@ -57,9 +57,9 @@ provider "google" {
 }
 
 # -----------------------------------------------------------------------------
-# Databricks Provider (workspace-level)
+# Databricks Provider (workspace-level, OAuth U2M via CLI)
+# Run: databricks auth login --host <workspace-url>
 # -----------------------------------------------------------------------------
 provider "databricks" {
-  host  = var.databricks_host
-  token = var.databricks_token
+  host = var.databricks_host
 }

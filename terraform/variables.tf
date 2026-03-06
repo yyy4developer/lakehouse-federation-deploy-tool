@@ -82,12 +82,7 @@ variable "catalog_prefix_catalog" {
 variable "databricks_host" {
   description = "Databricks workspace URL (e.g. https://fevm-xxx.cloud.databricks.com)"
   type        = string
-}
-
-variable "databricks_token" {
-  description = "Databricks personal access token"
-  type        = string
-  sensitive   = true
+  default     = "https://fe-sandbox-serverless-sandbox-tjmjb6-yao.cloud.databricks.com"
 }
 
 # =============================================================================

@@ -86,7 +86,7 @@ Databricks から Lakehouse Federation でクエリを実行します。
 | AWS | `aws configure` or env vars | `aws sts get-caller-identity` |
 | Azure | `az login` | `az account show` |
 | GCP | `gcloud auth application-default login` | `gcloud auth list` |
-| Databricks | PAT (workspace UI で発行) | - |
+| Databricks | OAuth U2M (`databricks auth login --host <url>`) | `databricks auth token --host <url>` |
 
 ### 4. デモ実行
 

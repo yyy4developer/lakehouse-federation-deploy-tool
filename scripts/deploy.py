@@ -65,11 +65,29 @@ def get_workspace_url() -> str:
     return url.rstrip("/")
 
 
-def get_databricks_token() -> str:
-    return questionary.password(
-        "Databricks PAT (Personal Access Token):",
-        validate=lambda x: x.startswith("dapi") or "dapi で始まる PAT を入力してください",
-    ).ask()
+def setup_databricks_auth(workspace_url: str):
+    """Setup Databricks OAuth U2M authentication via CLI."""
+    console.print("\n[bold]Databricks OAuth 認証...[/bold]")
+    console.print(f"  Workspace: {workspace_url}")
+
+    # Check if already authenticated
+    result = subprocess.run(
+        ["databricks", "auth", "token", "--host", workspace_url],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode == 0:
+        console.print("  [green]✓[/green] OAuth 認証済み")
+        return
+
+    console.print("  [yellow]OAuth ログインが必要です。ブラウザが開きます。[/yellow]")
+    result = subprocess.run(
+        ["databricks", "auth", "login", "--host", workspace_url],
+        timeout=120,
+    )
+    if result.returncode != 0:
+        console.print("  [red]✗ OAuth 認証に失敗しました[/red]")
+        sys.exit(1)
+    console.print("  [green]✓[/green] OAuth 認証完了")
 
 
 def select_sources(cloud: str) -> list[str]:
@@ -222,7 +240,6 @@ def collect_credentials(cloud: str, sources: list[str]) -> dict:
 def generate_tfvars(
     cloud: str,
     workspace_url: str,
-    token: str,
     sources: list[str],
     query_prefix: str,
     catalog_prefix: str,
@@ -246,9 +263,8 @@ def generate_tfvars(
         f'catalog_prefix_query   = "{query_prefix}"',
         f'catalog_prefix_catalog = "{catalog_prefix}"',
         "",
-        "# Databricks",
-        f'databricks_host  = "{workspace_url}"',
-        f'databricks_token = "{token}"',
+        "# Databricks (OAuth U2M via CLI)",
+        f'databricks_host = "{workspace_url}"',
         "",
         "# AWS",
         f'aws_region = "us-west-2"',
@@ -285,13 +301,12 @@ def run_terraform():
         console.print(f"[green]✓ {cmd_label}[/green]\n")
 
 
-def deploy_dab(workspace_url: str, token: str):
-    """Deploy notebooks via DAB."""
+def deploy_dab(workspace_url: str):
+    """Deploy notebooks via DAB (uses OAuth from CLI profile)."""
     console.print("[bold]DAB deployment...[/bold]\n")
 
     env = os.environ.copy()
     env["DATABRICKS_HOST"] = workspace_url
-    env["DATABRICKS_TOKEN"] = token
 
     result = subprocess.run(
         ["databricks", "bundle", "deploy", "--target", "dev"],
@@ -335,10 +350,10 @@ def main():
 
     cloud = select_cloud()
     workspace_url = get_workspace_url()
-    token = get_databricks_token()
     sources = select_sources(cloud)
     query_prefix, catalog_prefix = get_catalog_prefix()
     check_cloud_auth(cloud, sources)
+    setup_databricks_auth(workspace_url)
     creds = collect_credentials(cloud, sources)
 
     # Confirm
@@ -352,9 +367,9 @@ def main():
         console.print("[yellow]Cancelled.[/yellow]")
         sys.exit(0)
 
-    generate_tfvars(cloud, workspace_url, token, sources, query_prefix, catalog_prefix, creds)
+    generate_tfvars(cloud, workspace_url, sources, query_prefix, catalog_prefix, creds)
     run_terraform()
-    deploy_dab(workspace_url, token)
+    deploy_dab(workspace_url)
     print_summary(cloud, workspace_url, sources)
 
 

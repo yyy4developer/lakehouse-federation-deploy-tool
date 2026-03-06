@@ -22,9 +22,9 @@ enable_onelake  = false
 catalog_prefix_query   = "lhf_query"
 catalog_prefix_catalog = "lhf_catalog"
 
-# --- Databricks ---
-databricks_host  = "https://fevm-xxx.cloud.databricks.com"
-databricks_token = "dapi..."
+# --- Databricks (OAuth U2M via CLI) ---
+# Run: databricks auth login --host <workspace-url>
+databricks_host = "https://fevm-xxx.cloud.databricks.com"
 
 # --- AWS ---
 aws_region              = "us-west-2"
