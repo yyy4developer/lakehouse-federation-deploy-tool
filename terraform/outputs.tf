@@ -35,7 +35,7 @@ output "postgres_endpoint" {
 # ----- Azure Synapse -----
 output "synapse_endpoint" {
   description = "Azure Synapse SQL endpoint"
-  value       = var.enable_synapse ? "${azurerm_synapse_workspace.demo[0].name}.sql.azuresynapse.net" : null
+  value       = var.enable_synapse ? "${azurerm_synapse_workspace.demo[0].name}-ondemand.sql.azuresynapse.net" : null
 }
 
 # ----- BigQuery -----

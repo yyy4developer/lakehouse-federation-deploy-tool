@@ -65,21 +65,24 @@ resource "null_resource" "synapse_init" {
 
   provisioner "local-exec" {
     command = <<-EOT
-      SYNAPSE_HOST="${azurerm_synapse_workspace.demo[0].name}.sql.azuresynapse.net"
+      SYNAPSE_ONDEMAND="${azurerm_synapse_workspace.demo[0].name}-ondemand.sql.azuresynapse.net"
 
-      echo "Creating database..."
-      sqlcmd -S "$SYNAPSE_HOST" -U sqladmin -P '${var.synapse_admin_password}' \
-        -Q "IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'factory_analytics') CREATE DATABASE factory_analytics"
+      echo "Getting Azure AD token for serverless database creation..."
+      TOKEN=$(az account get-access-token --resource https://sql.azuresynapse.net --query accessToken -o tsv)
 
-      echo "Creating tables and inserting data..."
-      sqlcmd -S "$SYNAPSE_HOST" -d factory_analytics -U sqladmin -P '${var.synapse_admin_password}' \
+      echo "Creating serverless database factory_analytics..."
+      sqlcmd -S "$SYNAPSE_ONDEMAND" -d master -P "$TOKEN" -G \
+        -Q "IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'factory_analytics') CREATE DATABASE factory_analytics COLLATE Latin1_General_100_BIN2_UTF8"
+
+      echo "Setting up sqladmin user..."
+      sqlcmd -S "$SYNAPSE_ONDEMAND" -d factory_analytics -P "$TOKEN" -G \
+        -Q "IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = 'sqladmin') CREATE USER sqladmin FROM LOGIN sqladmin; ALTER ROLE db_owner ADD MEMBER sqladmin;"
+
+      echo "Creating views with sample data..."
+      sqlcmd -S "$SYNAPSE_ONDEMAND" -d factory_analytics -U sqladmin -P '${var.synapse_admin_password}' \
         -i ${path.module}/sql/synapse/create_shift_schedules.sql
-      sqlcmd -S "$SYNAPSE_HOST" -d factory_analytics -U sqladmin -P '${var.synapse_admin_password}' \
-        -i ${path.module}/sql/synapse/insert_shift_schedules.sql
-      sqlcmd -S "$SYNAPSE_HOST" -d factory_analytics -U sqladmin -P '${var.synapse_admin_password}' \
+      sqlcmd -S "$SYNAPSE_ONDEMAND" -d factory_analytics -U sqladmin -P '${var.synapse_admin_password}' \
         -i ${path.module}/sql/synapse/create_energy_consumption.sql
-      sqlcmd -S "$SYNAPSE_HOST" -d factory_analytics -U sqladmin -P '${var.synapse_admin_password}' \
-        -i ${path.module}/sql/synapse/insert_energy_consumption.sql
 
       echo "Synapse initialization complete."
     EOT

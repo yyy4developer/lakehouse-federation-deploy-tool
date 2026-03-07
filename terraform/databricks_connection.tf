@@ -60,7 +60,7 @@ resource "databricks_connection" "synapse" {
   connection_type = "SQLDW"
 
   options = {
-    host                    = "${azurerm_synapse_workspace.demo[0].name}.sql.azuresynapse.net"
+    host                    = "${azurerm_synapse_workspace.demo[0].name}-ondemand.sql.azuresynapse.net"
     port                    = "1433"
     user                    = "sqladmin"
     password                = var.synapse_admin_password
