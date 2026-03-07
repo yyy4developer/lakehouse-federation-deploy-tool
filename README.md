@@ -92,7 +92,7 @@ Databricks から Lakehouse Federation でクエリを実行します。
 
 デプロイ完了後:
 1. Databricks ワークスペースにログイン
-2. **Workspace** → `/Shared/lakehouse_federation_demo/federation_demo` を開く
+2. **Workspace** → `/Shared/lakehouse_federation_demo/notebooks/federation_demo` を開く
 3. SQL Warehouse (Pro/Serverless) をアタッチ
 4. セル単位で実行（デプロイしたソースのセクションのみ）
 

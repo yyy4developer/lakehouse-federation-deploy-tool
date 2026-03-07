@@ -32,3 +32,6 @@ terraform/*.json
 # Terraform plan
 *.tfplan
 tfplan
+
+# Databricks
+.databricks/

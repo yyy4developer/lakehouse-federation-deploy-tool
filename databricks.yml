@@ -1,10 +1,9 @@
 bundle:
   name: lakehouse_federation_demo
 
-artifacts:
-  notebooks:
-    - source: notebooks/
-      path: /Shared/lakehouse_federation_demo
+sync:
+  include:
+    - "notebooks/**"
 
 targets:
   dev:
@@ -12,3 +11,4 @@ targets:
     default: true
     workspace:
       host: ${DATABRICKS_HOST}
+      root_path: /Shared/lakehouse_federation_demo

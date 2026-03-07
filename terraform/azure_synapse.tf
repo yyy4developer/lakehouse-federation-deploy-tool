@@ -46,13 +46,23 @@ resource "azurerm_synapse_workspace" "demo" {
   }
 }
 
-resource "azurerm_synapse_firewall_rule" "allow_all" {
+# Split into two broad ranges to avoid Azure policy blocking 0.0.0.0/0
+resource "azurerm_synapse_firewall_rule" "allow_broad1" {
   count = var.enable_synapse ? 1 : 0
 
-  name                 = "AllowAll"
+  name                 = "AllowBroad1"
   synapse_workspace_id = azurerm_synapse_workspace.demo[0].id
-  start_ip_address     = "0.0.0.0"
-  end_ip_address       = "255.255.255.255"
+  start_ip_address     = "1.0.0.0"
+  end_ip_address       = "126.255.255.255"
+}
+
+resource "azurerm_synapse_firewall_rule" "allow_broad2" {
+  count = var.enable_synapse ? 1 : 0
+
+  name                 = "AllowBroad2"
+  synapse_workspace_id = azurerm_synapse_workspace.demo[0].id
+  start_ip_address     = "128.0.0.0"
+  end_ip_address       = "254.255.255.255"
 }
 
 # Initialize Synapse with tables and data via sqlcmd
@@ -88,5 +98,5 @@ resource "null_resource" "synapse_init" {
     EOT
   }
 
-  depends_on = [azurerm_synapse_firewall_rule.allow_all]
+  depends_on = [azurerm_synapse_firewall_rule.allow_broad1, azurerm_synapse_firewall_rule.allow_broad2]
 }

@@ -361,7 +361,7 @@ def print_summary(cloud: str, workspace_url: str, sources: list[str]):
     console.print(table)
 
     console.print(f"\n[bold]Databricks Workspace:[/bold] {workspace_url}")
-    console.print(f"[bold]Demo Notebook:[/bold] {workspace_url}/#workspace/Shared/lakehouse_federation_demo/federation_demo")
+    console.print(f"[bold]Demo Notebook:[/bold] {workspace_url}/#workspace/Shared/lakehouse_federation_demo/notebooks/federation_demo")
 
     # Print terraform outputs
     console.print("\n[bold]Terraform Outputs:[/bold]")
