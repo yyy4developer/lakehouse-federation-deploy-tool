@@ -159,6 +159,12 @@ terraform destroy
 - `postgres_admin_password` が正しいか確認
 - macOS で `psql` が見つからない場合: `/opt/homebrew/opt/libpq/bin/psql` を使用
 
+#### Terraform init でテーブルが作成されない
+- `psql` が Terraform の `local-exec` 実行環境の PATH に存在しない場合、スクリプトが静かに失敗する
+- Terraform は init スクリプトの完了を報告するが、実際にはテーブルが空のまま
+- 対策: `set -e` と `command -v psql` による PATH 検出を init スクリプトに追加済み
+- 手動確認: `psql -h <endpoint> -U pgadmin -d <db_name> -c '\dt public.*'`
+
 ### Azure Synapse
 
 #### ファイアウォールルール作成失敗
@@ -173,6 +179,12 @@ terraform destroy
 - **sp_addextendedproperty**: Serverless SQL pool では非対応。テーブル/カラムコメントは設定不可
 - **ファイアウォール反映遅延**: ルール作成後、接続可能になるまで10-15秒の遅延がある
 
+#### Terraform init でデータベースが作成されない
+- ファイアウォールルール適用直後の接続はタイムアウトすることがある
+- `sqlcmd` の AAD トークン認証が初回で失敗する場合がある
+- 対策: init スクリプトにリトライループと `sleep 15` を追加済み
+- 手動確認: `sqlcmd -S <endpoint> -d master -P "$TOKEN" -G -Q "SELECT name FROM sys.databases"`
+
 #### Databricks から "InvocationTargetException"
 - ファイアウォールルールが Databricks の IP を許可しているか確認
 - `trustServerCertificate = "true"` がコネクション設定に含まれているか確認
@@ -186,6 +198,12 @@ terraform destroy
 #### 接続エラー
 - GCP 認証が有効か確認: `gcloud auth application-default login`
 - `gcp_project_id` が正しいか確認
+
+#### SA の権限不足で terraform destroy が失敗する
+- サービスアカウントに `roles/bigquery.dataEditor` が必要（テーブル作成・削除に必須）
+- `roles/bigquery.dataViewer` + `roles/bigquery.jobUser` だけでは destroy 時に 403 エラー
+- 権限追加: `gcloud projects add-iam-policy-binding <project> --member="serviceAccount:<sa>" --role="roles/bigquery.dataEditor" --condition=None`
+- destroy が途中で失敗した場合: `bq rm -f --table <project>:<dataset>.<table>` で手動削除し、`terraform state rm` でステートから除外
 
 ### Databricks
 

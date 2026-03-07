@@ -490,6 +490,166 @@ def generate_deploy_result(
     return result_path
 
 
+# (table_name, fqn_template, expected_rows)
+SOURCE_TEST_QUERIES = {
+    "glue": [
+        ("sensors", "{catalog_prefix}_glue.{db_prefix}_factory_master.sensors", 20),
+        ("machines", "{catalog_prefix}_glue.{db_prefix}_factory_master.machines", 10),
+        ("quality_inspections", "{catalog_prefix}_glue.{db_prefix}_factory_master.quality_inspections", 50),
+    ],
+    "redshift": [
+        ("sensor_readings", "{query_prefix}_redshift.public.sensor_readings", 100),
+        ("production_events", "{query_prefix}_redshift.public.production_events", 30),
+        ("quality_inspections", "{query_prefix}_redshift.public.quality_inspections", 40),
+    ],
+    "postgres": [
+        ("maintenance_logs", "{query_prefix}_postgres.public.maintenance_logs", 30),
+        ("work_orders", "{query_prefix}_postgres.public.work_orders", 25),
+    ],
+    "synapse": [
+        ("shift_schedules", "{query_prefix}_synapse.dbo.shift_schedules", 40),
+        ("energy_consumption", "{query_prefix}_synapse.dbo.energy_consumption", 50),
+    ],
+    "bigquery": [
+        ("downtime_records", "{query_prefix}_bigquery.{db_prefix}_factory.downtime_records", 35),
+        ("cost_allocation", "{query_prefix}_bigquery.{db_prefix}_factory.cost_allocation", 30),
+    ],
+    "onelake": [
+        ("production_plans", "{catalog_prefix}_onelake.default.production_plans", 20),
+        ("inventory_levels", "{catalog_prefix}_onelake.default.inventory_levels", 30),
+    ],
+}
+
+
+def _get_databricks_token(workspace_url: str) -> str | None:
+    """Get OAuth token via databricks CLI."""
+    try:
+        result = subprocess.run(
+            ["databricks", "auth", "token", "--host", workspace_url],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            return json.loads(result.stdout).get("access_token")
+    except Exception:
+        pass
+    return None
+
+
+def _get_warehouse_id(workspace_url: str, token: str) -> str | None:
+    """Find a running SQL warehouse."""
+    try:
+        result = subprocess.run(
+            ["curl", "-s", f"{workspace_url}/api/2.0/sql/warehouses",
+             "-H", f"Authorization: Bearer {token}"],
+            capture_output=True, text=True, timeout=15,
+        )
+        warehouses = json.loads(result.stdout).get("warehouses", [])
+        for w in warehouses:
+            if w.get("state") == "RUNNING":
+                return w["id"]
+        if warehouses:
+            return warehouses[0]["id"]
+    except Exception:
+        pass
+    return None
+
+
+def _execute_sql(workspace_url: str, token: str, warehouse_id: str, sql: str) -> dict:
+    """Execute SQL via Databricks SQL Statements API."""
+    result = subprocess.run(
+        ["curl", "-s", "-X", "POST",
+         f"{workspace_url}/api/2.0/sql/statements",
+         "-H", f"Authorization: Bearer {token}",
+         "-H", "Content-Type: application/json",
+         "-d", json.dumps({
+             "statement": sql,
+             "warehouse_id": warehouse_id,
+             "wait_timeout": "50s",
+             "on_wait_timeout": "CANCEL",
+         })],
+        capture_output=True, text=True, timeout=90,
+    )
+    return json.loads(result.stdout)
+
+
+def run_connectivity_test(
+    workspace_url: str,
+    sources: list[str],
+    query_prefix: str,
+    catalog_prefix: str,
+) -> bool:
+    """Run connectivity tests against all deployed sources via Databricks SQL."""
+    outputs = get_terraform_outputs()
+    db_names = outputs.get("database_names", {})
+    # Derive db_prefix from any available database name
+    sample_db = next(iter(db_names.values()), "lhf_demo_factory")
+    db_prefix = sample_db.rsplit("_factory", 1)[0]
+
+    console.print("\n")
+    console.print(Panel("[bold cyan]Connectivity Test[/bold cyan]", border_style="cyan"))
+
+    token = _get_databricks_token(workspace_url)
+    if not token:
+        console.print("[red]Could not get Databricks token. Skipping tests.[/red]")
+        return False
+
+    warehouse_id = _get_warehouse_id(workspace_url, token)
+    if not warehouse_id:
+        console.print("[red]No SQL warehouse found. Skipping tests.[/red]")
+        return False
+
+    console.print(f"  Using warehouse: {warehouse_id}\n")
+
+    table = Table(title="Federation Source Tests")
+    table.add_column("Source", style="cyan")
+    table.add_column("Table")
+    table.add_column("Expected", justify="right")
+    table.add_column("Actual", justify="right")
+    table.add_column("Status")
+
+    all_passed = True
+
+    for src in sources:
+        queries = SOURCE_TEST_QUERIES.get(src, [])
+        for tbl_name, fqn_template, expected in queries:
+            fqn = fqn_template.format(
+                query_prefix=query_prefix,
+                catalog_prefix=catalog_prefix,
+                db_prefix=db_prefix,
+            )
+            sql = f"SELECT count(*) AS cnt FROM {fqn}"
+
+            try:
+                resp = _execute_sql(workspace_url, token, warehouse_id, sql)
+                state = resp.get("status", {}).get("state", "UNKNOWN")
+
+                if state == "SUCCEEDED":
+                    data = resp.get("result", {}).get("data_array", [])
+                    actual = int(data[0][0]) if data else 0
+                    if actual == expected:
+                        table.add_row(src, tbl_name, str(expected), str(actual), "[green]PASS[/green]")
+                    else:
+                        table.add_row(src, tbl_name, str(expected), str(actual), "[yellow]MISMATCH[/yellow]")
+                        all_passed = False
+                else:
+                    error_msg = resp.get("status", {}).get("error", {}).get("message", state)
+                    table.add_row(src, tbl_name, str(expected), error_msg[:30], "[red]FAIL[/red]")
+                    all_passed = False
+
+            except Exception as e:
+                table.add_row(src, tbl_name, str(expected), str(e)[:30], "[red]ERROR[/red]")
+                all_passed = False
+
+    console.print(table)
+
+    if all_passed:
+        console.print("\n[bold green]All connectivity tests passed![/bold green]")
+    else:
+        console.print("\n[bold red]Some tests failed. Check the table above.[/bold red]")
+
+    return all_passed
+
+
 def print_summary(
     cloud: str,
     workspace_url: str,
@@ -514,6 +674,9 @@ def print_summary(
 
     console.print(f"\n[bold]Databricks Workspace:[/bold] {workspace_url}")
     console.print(f"[bold]Demo Notebook:[/bold] {workspace_url}/#workspace/Shared/lakehouse_federation_demo/notebooks/federation_demo")
+
+    # Run connectivity tests
+    run_connectivity_test(workspace_url, sources, query_prefix, catalog_prefix)
 
     # Generate deploy_result.md
     result_path = generate_deploy_result(cloud, workspace_url, sources, query_prefix, catalog_prefix)
