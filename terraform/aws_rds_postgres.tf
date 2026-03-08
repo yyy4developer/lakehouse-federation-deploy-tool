@@ -90,6 +90,7 @@ resource "null_resource" "postgres_init" {
       set -e
       export PGPASSWORD='${var.postgres_admin_password}'
       PGHOST='${aws_db_instance.postgres[0].address}'
+      SCHEMA='${local.source_schema}'
 
       # Find psql (macOS homebrew path or standard)
       PSQL=$(command -v psql || echo "/opt/homebrew/opt/libpq/bin/psql")
@@ -98,11 +99,19 @@ resource "null_resource" "postgres_init" {
         exit 1
       fi
 
+      echo "Creating schema $SCHEMA..."
+      "$PSQL" -h "$PGHOST" -U pgadmin -d ${local.postgres_db_name} -c "CREATE SCHEMA IF NOT EXISTS $SCHEMA"
+
+      # Set search_path so all SQL files create objects in the custom schema
+      export PGOPTIONS="-c search_path=$SCHEMA"
+
       echo "Creating tables..."
+      "$PSQL" -h "$PGHOST" -U pgadmin -d ${local.postgres_db_name} -f ${path.module}/sql/postgres/create_machines.sql
       "$PSQL" -h "$PGHOST" -U pgadmin -d ${local.postgres_db_name} -f ${path.module}/sql/postgres/create_maintenance_logs.sql
       "$PSQL" -h "$PGHOST" -U pgadmin -d ${local.postgres_db_name} -f ${path.module}/sql/postgres/create_work_orders.sql
 
       echo "Inserting data..."
+      "$PSQL" -h "$PGHOST" -U pgadmin -d ${local.postgres_db_name} -f ${path.module}/sql/postgres/insert_machines.sql
       "$PSQL" -h "$PGHOST" -U pgadmin -d ${local.postgres_db_name} -f ${path.module}/sql/postgres/insert_maintenance_logs.sql
       "$PSQL" -h "$PGHOST" -U pgadmin -d ${local.postgres_db_name} -f ${path.module}/sql/postgres/insert_work_orders.sql
 

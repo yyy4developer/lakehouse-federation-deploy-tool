@@ -54,47 +54,98 @@ Databricks から Lakehouse Federation でクエリを実行します。
 
 ## クイックスタート
 
-### 1. ワンクリックデプロイ
+### 1. 前提条件 (CLI ツール)
+
+| ツール | 必須 | インストール | 確認コマンド |
+|--------|:----:|-------------|-------------|
+| Terraform | Yes | `brew install terraform` | `terraform version` |
+| uv | Yes | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | `uv --version` |
+| jq | Yes | `brew install jq` | `jq --version` |
+| AWS CLI | AWS ソース使用時 | `brew install awscli` | `aws --version` |
+| Azure CLI | Azure ソース使用時 | `brew install azure-cli` | `az --version` |
+| gcloud CLI | BigQuery 使用時 | `brew install google-cloud-sdk` | `gcloud --version` |
+| Databricks CLI | Yes | `brew install databricks` | `databricks --version` |
+| psql | PostgreSQL 使用時 | `brew install libpq` | `psql --version` |
+| sqlcmd | Synapse 使用時 | `brew install sqlcmd` | `sqlcmd --version` |
+
+### 2. 事前準備 (デプロイ前に実施)
+
+#### クラウド認証
+
+sandbox 環境の使用を推奨します。
+
+| Provider | 推奨アカウント | 認証コマンド |
+|----------|--------------|------------|
+| AWS | Profile: `aws-sandbox-field-eng_databricks-sandbox-admin` | `aws sso login --profile aws-sandbox-field-eng_databricks-sandbox-admin` |
+| Azure | Subscription: `azure-sandbox-field-eng` (`edd4cc45-85c7-4aec-8bf5-648062d519bf`) | `az login` → `az account set -s azure-sandbox-field-eng` |
+| GCP | Project: `gcp-sandbox-field-eng` | `gcloud auth application-default login` → `gcloud config set project gcp-sandbox-field-eng` |
+| Databricks | デプロイ時にブラウザ認証 (OAuth U2M) | 自動 |
+
+#### BigQuery: GCP サービスアカウント key JSON
+
+BigQuery を使用する場合、Databricks の connection に SA key JSON が必須です。
+デプロイスクリプトが **SA 作成 → 権限付与 → key 生成を自動実行** するため、事前準備は不要です。
+(GCP SA key JSON path の入力で空白 Enter するだけで自動作成されます)
+
+手動で作成する場合:
+```bash
+gcloud iam service-accounts create lhf-demo --project=gcp-sandbox-field-eng --display-name="LHF Demo"
+gcloud projects add-iam-policy-binding gcp-sandbox-field-eng \
+  --member="serviceAccount:lhf-demo@gcp-sandbox-field-eng.iam.gserviceaccount.com" \
+  --role="roles/bigquery.admin"
+gcloud iam service-accounts keys create ~/gcp-sa-key.json \
+  --iam-account=lhf-demo@gcp-sandbox-field-eng.iam.gserviceaccount.com
+```
+
+#### Databricks ワークスペース
+
+デプロイ先の Databricks workspace URL が必要です (admin 権限が必要)。
+- 既存の workspace を使用可能 (sandbox 環境を推奨)
+- 新規作成する場合: Claude Code で `/databricks-fe-vm-workspace-deployment` を実行して FEVM で作成
+
+### 3. デプロイ実行
 
 ```bash
 ./lakehouse_federation_demo_resource_deploy.sh
 ```
 
-対話形式で以下を設定し、自動的に Terraform + DAB でデプロイします:
-- クラウド選択 (AWS / Azure)
-- Workspace URL (FEVM で作成可能)
-- Federation ソース選択
-- 認証情報の入力
+対話フローで以下を順に入力します:
 
-### 2. 前提条件
+| ステップ | 入力内容 | 備考 |
+|---------|---------|------|
+| Cloud | `aws` or `azure` | Databricks workspace のクラウド |
+| Workspace URL | `https://xxx.cloud.databricks.com` | 必須 |
+| Sources | チェックボックスで選択 | Glue は AWS のみ、OneLake は Azure のみ |
+| Prefix | 自動生成 (`lhf_xxxx`) | そのまま Enter で OK。変更も可 |
+| AWS profile | SSO profile 名 | 例: `aws-sandbox-field-eng_databricks-sandbox-admin` |
+| Databricks auth | ブラウザが開く | OAuth U2M で自動認証 |
+| Redshift password | 8文字以上 (大小文字+数字) | Redshift 選択時のみ |
+| PostgreSQL password | 8文字以上 | PostgreSQL 選択時のみ |
+| Synapse password | 任意 | Synapse 選択時のみ |
+| Azure subscription ID | GUID | Azure ソース選択時 (`az login` 済みなら自動取得) |
+| GCP project ID | 例: `gcp-sandbox-field-eng` | BigQuery 選択時のみ |
+| GCP SA key JSON path | 空白 Enter で自動作成 | BigQuery 選択時 (既存パス指定も可) |
+| Fabric workspace ID | GUID | OneLake 選択時のみ |
 
-| ツール | 必須 | 確認コマンド |
-|--------|:----:|-------------|
-| Terraform | Yes | `terraform version` |
-| uv | Yes | `uv --version` |
-| jq | Yes | `jq --version` |
-| AWS CLI | AWS ソース使用時 | `aws --version` |
-| Azure CLI | Azure ソース使用時 | `az --version` |
-| gcloud CLI | BigQuery 使用時 | `gcloud --version` |
-| Databricks CLI | DAB デプロイ時 | `databricks --version` |
-| psql | PostgreSQL 使用時 | `psql --version` |
+### 4. デプロイ結果確認
 
-### 3. 認証
+デプロイ完了後、`deploy_result.md` が生成されます。各リソースの URL、カタログツリー、接続テスト結果を確認できます。
 
-| Provider | 方法 | 確認コマンド |
-|----------|------|------------|
-| AWS | `aws configure` or env vars | `aws sts get-caller-identity` |
-| Azure | `az login` | `az account show` |
-| GCP | `gcloud auth application-default login` | `gcloud auth list` |
-| Databricks | OAuth U2M (`databricks auth login --host <url>`) | `databricks auth token --host <url>` |
-
-### 4. デモ実行
+### 5. デモ実行
 
 デプロイ完了後:
-1. Databricks ワークスペースにログイン
-2. **Workspace** → `/Shared/lakehouse_federation_demo/notebooks/federation_demo` を開く
+1. `deploy_result.md` の Workspace URL を開く
+2. **Demo Notebook (UI用 Widget版)** リンクで対話型ノートブックを開く
 3. SQL Warehouse (Pro/Serverless) をアタッチ
-4. セル単位で実行（デプロイしたソースのセクションのみ）
+4. "Run All" で実行 (上部に Widget が表示され、値を変更可能)
+
+Job 用ノートブック (`federation_demo.sql`) はデプロイ時に自動実行済みです。
+
+### 6. クリーンアップ
+
+```bash
+./lakehouse_federation_demo_resource_deploy.sh --destroy
+```
 
 ## 手動デプロイ
 
@@ -107,13 +158,6 @@ cp terraform.tfvars.example terraform.tfvars
 terraform init
 terraform plan
 terraform apply
-```
-
-## クリーンアップ
-
-```bash
-cd terraform
-terraform destroy
 ```
 
 ## トラブルシューティング

@@ -3,31 +3,31 @@
 -- COMMAND ----------
 
 -- MAGIC %md
--- MAGIC # Lakehouse Federation デモ
+-- MAGIC # Lakehouse Federation デモ (Azure)
 -- MAGIC ## Unity Catalog による外部データソースの統合ガバナンス
 -- MAGIC
 -- MAGIC ---
 -- MAGIC
 -- MAGIC | 章 | テーマ | 内容 |
 -- MAGIC |----|--------|------|
--- MAGIC | **第1章** | メタデータ統合 | Lakehouse Federation で外部データソースをクエリ |
+-- MAGIC | **第1章** | メタデータ統合 | 5 ソースを Lakehouse Federation でクエリ |
 -- MAGIC | **第2章** | クロスソース分析 | 複数ソースを JOIN してリネージを可視化 |
 -- MAGIC | **第3章** | アクセス制御 | Federation カタログへの権限管理 |
 -- MAGIC | **第4章** | AI 活用 | Genie で自然言語データ探索 |
+-- MAGIC
+-- MAGIC **接続ソース**: Amazon Redshift / PostgreSQL (Azure Flexible Server) / Azure Synapse / Google BigQuery
 
 -- COMMAND ----------
 
 -- MAGIC %md
 -- MAGIC ## 設定
--- MAGIC
--- MAGIC デプロイ時に自動設定されます。手動で変更する場合は以下を編集してください。
 
 -- COMMAND ----------
 
-DECLARE OR REPLACE query_prefix STRING DEFAULT 'lhf_query';
-DECLARE OR REPLACE catalog_prefix STRING DEFAULT 'lhf_catalog';
-DECLARE OR REPLACE db_prefix STRING DEFAULT 'lhf_demo';
-DECLARE OR REPLACE analysis_catalog STRING DEFAULT 'main';
+DECLARE OR REPLACE query_prefix STRING DEFAULT 'lhf_xb5v_demo_query';
+DECLARE OR REPLACE catalog_prefix STRING DEFAULT 'lhf_xb5v_demo_catalog';
+DECLARE OR REPLACE db_prefix STRING DEFAULT 'lhf_xb5v_demo';
+DECLARE OR REPLACE analysis_catalog STRING DEFAULT 'lhf_xb5v_demo_union_dbx';
 
 -- COMMAND ----------
 
@@ -35,65 +35,32 @@ DECLARE OR REPLACE analysis_catalog STRING DEFAULT 'main';
 -- MAGIC ---
 -- MAGIC # 第1章: メタデータ統合 — Lakehouse Federation
 -- MAGIC
--- MAGIC Lakehouse Federation により、外部データソースのメタデータを Unity Catalog に統合し、
--- MAGIC **データを移動せずに** 一元管理・クエリします。
--- MAGIC
 -- MAGIC ```
 -- MAGIC ┌──────────────────────────────────────────────────────────────────────────────┐
 -- MAGIC │                          Databricks Unity Catalog                            │
 -- MAGIC │                                                                              │
--- MAGIC │  Catalog Federation                    Query Federation                      │
--- MAGIC │  ┌─────────────────┐   ┌─────────────────┐ ┌─────────────────┐              │
--- MAGIC │  │  *_catalog_glue │   │ *_query_redshift │ │ *_query_postgres│              │
--- MAGIC │  │  (S3 直接読取)  │   │ (JDBC pushdown)  │ │ (JDBC pushdown) │              │
--- MAGIC │  └────────┬────────┘   └────────┬─────────┘ └────────┬────────┘              │
--- MAGIC │           │            ┌────────┴─────────┐ ┌────────┴────────┐              │
--- MAGIC │           │            │ *_query_synapse   │ │ *_query_bigquery│              │
--- MAGIC │           │            │ (JDBC pushdown)   │ │ (JDBC pushdown) │              │
--- MAGIC │           │            └────────┬──────────┘ └────────┬────────┘              │
--- MAGIC └───────────┼─────────────────────┼──────────────────────┼─────────────────────┘
--- MAGIC             │                     │                      │
--- MAGIC    ┌────────▼──────┐   ┌─────────▼───────┐   ┌─────────▼──────┐
--- MAGIC    │ AWS Glue / S3 │   │ Redshift /       │   │ BigQuery       │
--- MAGIC    │               │   │ PostgreSQL /     │   │                │
--- MAGIC    │               │   │ Synapse (JDBC)   │   │                │
--- MAGIC    └───────────────┘   └─────────────────┘   └────────────────┘
+-- MAGIC │                           Query Federation                                   │
+-- MAGIC │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐                        │
+-- MAGIC │  │ Redshift │ │ Postgres │ │ Synapse  │ │ BigQuery │                        │
+-- MAGIC │  │  (JDBC)  │ │  (JDBC)  │ │  (JDBC)  │ │  (JDBC)  │                        │
+-- MAGIC │  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘                        │
+-- MAGIC └───────┼────────────┼────────────┼────────────┼──────────────────────────────┘
+-- MAGIC         │            │            │            │
+-- MAGIC   ┌─────▼──────┐ ┌──▼───────┐ ┌──▼──────┐ ┌──▼──────┐
+-- MAGIC   │  Redshift  │ │  Azure   │ │ Synapse │ │ BigQuery│
+-- MAGIC   │  (AWS)     │ │ Postgres │ │ (Azure) │ │  (GCP)  │
+-- MAGIC   └────────────┘ └──────────┘ └─────────┘ └─────────┘
 -- MAGIC ```
 -- MAGIC
 -- MAGIC | 方式 | 対象 | 仕組み |
 -- MAGIC |------|------|--------|
--- MAGIC | **Catalog Federation** | Glue, OneLake | メタデータ API 経由 → ストレージ直接読取 (Spark) |
 -- MAGIC | **Query Federation** | Redshift, PostgreSQL, Synapse, BigQuery | JDBC 経由でクエリをプッシュダウン |
 
 -- COMMAND ----------
 
 -- MAGIC %md
 -- MAGIC ---
--- MAGIC ## 1.1 Catalog Federation: AWS Glue
--- MAGIC
--- MAGIC Glue Data Catalog のテーブルを Unity Catalog 経由で透過的に参照。
--- MAGIC Databricks は **S3 上のデータを直接読み取り**、Spark エンジンで処理します。
-
--- COMMAND ----------
-
--- センサーマスタ (Parquet)
-SELECT * FROM IDENTIFIER(catalog_prefix || '_glue.' || db_prefix || '_factory_master.sensors');
-
--- COMMAND ----------
-
--- 機械マスタ (Delta)
-SELECT * FROM IDENTIFIER(catalog_prefix || '_glue.' || db_prefix || '_factory_master.machines');
-
--- COMMAND ----------
-
--- 品質検査 (Iceberg) — 3つのフォーマットを透過的に扱える
-SELECT * FROM IDENTIFIER(catalog_prefix || '_glue.' || db_prefix || '_factory_master.quality_inspections');
-
--- COMMAND ----------
-
--- MAGIC %md
--- MAGIC ---
--- MAGIC ## 1.2 Query Federation: Amazon Redshift
+-- MAGIC ## 1.1 Query Federation: Amazon Redshift
 -- MAGIC
 -- MAGIC Redshift Serverless に JDBC 経由でクエリを発行。
 -- MAGIC フィルタや集約は **Redshift 側にプッシュダウン** され、結果のみが返却されます。
@@ -117,10 +84,15 @@ SELECT * FROM IDENTIFIER(query_prefix || '_redshift.' || db_prefix || '.quality_
 
 -- MAGIC %md
 -- MAGIC ---
--- MAGIC ## 1.3 Query Federation: PostgreSQL
+-- MAGIC ## 1.2 Query Federation: PostgreSQL
 -- MAGIC
--- MAGIC PostgreSQL (AWS RDS / Azure Flexible Server) に JDBC 経由でクエリを発行。
--- MAGIC 保守ログや作業指示書など運用系データを参照します。
+-- MAGIC PostgreSQL (Azure Flexible Server) に JDBC 経由でクエリを発行。
+-- MAGIC 機械マスタ、保守ログ、作業指示書など運用系データを参照します。
+
+-- COMMAND ----------
+
+-- 機械マスタ
+SELECT * FROM IDENTIFIER(query_prefix || '_postgres.' || db_prefix || '.machines');
 
 -- COMMAND ----------
 
@@ -136,7 +108,7 @@ SELECT * FROM IDENTIFIER(query_prefix || '_postgres.' || db_prefix || '.work_ord
 
 -- MAGIC %md
 -- MAGIC ---
--- MAGIC ## 1.4 Query Federation: Azure Synapse
+-- MAGIC ## 1.3 Query Federation: Azure Synapse
 -- MAGIC
 -- MAGIC Azure Synapse Analytics (Serverless SQL Pool) に JDBC 経由でクエリを発行。
 -- MAGIC シフト管理やエネルギー消費データを参照します。
@@ -155,7 +127,7 @@ SELECT * FROM IDENTIFIER(query_prefix || '_synapse.' || db_prefix || '.energy_co
 
 -- MAGIC %md
 -- MAGIC ---
--- MAGIC ## 1.5 Query Federation: Google BigQuery
+-- MAGIC ## 1.4 Query Federation: Google BigQuery
 -- MAGIC
 -- MAGIC Google BigQuery に JDBC 経由でクエリを発行。
 -- MAGIC 稼働停止記録やコスト配分データを参照します。
@@ -169,25 +141,6 @@ SELECT * FROM IDENTIFIER(query_prefix || '_bigquery.' || db_prefix || '_factory.
 
 -- コスト配分
 SELECT * FROM IDENTIFIER(query_prefix || '_bigquery.' || db_prefix || '_factory.cost_allocation');
-
--- COMMAND ----------
-
--- MAGIC %md
--- MAGIC ---
--- MAGIC ## 1.6 Catalog Federation: Microsoft OneLake (Fabric)
--- MAGIC
--- MAGIC Microsoft Fabric の OneLake に格納されたデータを
--- MAGIC Catalog Federation 経由で透過的に参照します。
-
--- COMMAND ----------
-
--- 生産計画
-SELECT * FROM IDENTIFIER(catalog_prefix || '_onelake.default.production_plans');
-
--- COMMAND ----------
-
--- 在庫水準
-SELECT * FROM IDENTIFIER(catalog_prefix || '_onelake.default.inventory_levels');
 
 -- COMMAND ----------
 
@@ -212,7 +165,7 @@ CREATE SCHEMA IF NOT EXISTS IDENTIFIER(analysis_catalog || '.lhf_demo');
 -- MAGIC %md
 -- MAGIC ## 2.2 機械ヘルスサマリーの作成
 -- MAGIC
--- MAGIC Glue (マスタ) + Redshift (トランザクション) をクロスソース JOIN し、
+-- MAGIC PostgreSQL (マスタ) + Redshift (トランザクション) をクロスソース JOIN し、
 -- MAGIC 機械ごとの総合ヘルスサマリーを作成します。
 
 -- COMMAND ----------
@@ -235,11 +188,6 @@ event_summary AS (
   FROM ' || query_prefix || '_redshift.' || db_prefix || '.production_events e
   GROUP BY e.machine_id
 ),
-quality_all AS (
-  SELECT machine_id, result, defect_count FROM ' || catalog_prefix || '_glue.' || db_prefix || '_factory_master.quality_inspections
-  UNION ALL
-  SELECT machine_id, result, defect_count FROM ' || query_prefix || '_redshift.' || db_prefix || '.quality_inspections
-),
 quality_agg AS (
   SELECT
     machine_id,
@@ -247,7 +195,7 @@ quality_agg AS (
     COUNT(CASE WHEN result = \'pass\' THEN 1 END) AS passed_inspections,
     COUNT(CASE WHEN result = \'fail\' THEN 1 END) AS failed_inspections,
     SUM(defect_count) AS total_defects
-  FROM quality_all
+  FROM ' || query_prefix || '_redshift.' || db_prefix || '.quality_inspections
   GROUP BY machine_id
 )
 SELECT
@@ -262,7 +210,7 @@ SELECT
   COALESCE(qa.failed_inspections, 0) AS failed_inspection_count,
   COALESCE(qa.total_defects, 0) AS total_defect_count,
   ROUND(COALESCE(qa.passed_inspections, 0) * 100.0 / NULLIF(qa.total_inspections, 0), 1) AS quality_pass_rate_pct
-FROM ' || catalog_prefix || '_glue.' || db_prefix || '_factory_master.machines m
+FROM ' || query_prefix || '_postgres.' || db_prefix || '.machines m
 LEFT JOIN sensor_summary ss ON m.machine_id = ss.machine_id
 LEFT JOIN event_summary es ON m.machine_id = es.machine_id
 LEFT JOIN quality_agg qa ON m.machine_id = qa.machine_id';
@@ -286,7 +234,7 @@ SELECT
   COUNT(ml.log_id) AS maintenance_log_count,
   COUNT(wo.order_id) AS work_order_count,
   COUNT(CASE WHEN wo.status = 'open' THEN 1 END) AS open_work_orders
-FROM IDENTIFIER(catalog_prefix || '_glue.' || db_prefix || '_factory_master.machines') m
+FROM IDENTIFIER(query_prefix || '_postgres.' || db_prefix || '.machines') m
 LEFT JOIN IDENTIFIER(query_prefix || '_postgres.' || db_prefix || '.maintenance_logs') ml ON m.machine_id = ml.machine_id
 LEFT JOIN IDENTIFIER(query_prefix || '_postgres.' || db_prefix || '.work_orders') wo ON m.machine_id = wo.machine_id
 GROUP BY m.machine_id, m.machine_name
@@ -301,7 +249,7 @@ SELECT
   COUNT(DISTINCT ss.shift_id) AS total_shifts,
   ROUND(SUM(ec.kwh_consumed), 2) AS total_kwh,
   ROUND(SUM(ec.cost_usd), 2) AS total_energy_cost_usd
-FROM IDENTIFIER(catalog_prefix || '_glue.' || db_prefix || '_factory_master.machines') m
+FROM IDENTIFIER(query_prefix || '_postgres.' || db_prefix || '.machines') m
 LEFT JOIN IDENTIFIER(query_prefix || '_synapse.' || db_prefix || '.shift_schedules') ss ON m.machine_id = ss.machine_id
 LEFT JOIN IDENTIFIER(query_prefix || '_synapse.' || db_prefix || '.energy_consumption') ec ON m.machine_id = ec.machine_id
 GROUP BY m.machine_id, m.machine_name
@@ -315,7 +263,7 @@ SELECT
   m.machine_name,
   COUNT(dr.record_id) AS downtime_incidents,
   ROUND(SUM(ca.amount_usd), 2) AS total_allocated_cost_usd
-FROM IDENTIFIER(catalog_prefix || '_glue.' || db_prefix || '_factory_master.machines') m
+FROM IDENTIFIER(query_prefix || '_postgres.' || db_prefix || '.machines') m
 LEFT JOIN IDENTIFIER(query_prefix || '_bigquery.' || db_prefix || '_factory.downtime_records') dr ON m.machine_id = dr.machine_id
 LEFT JOIN IDENTIFIER(query_prefix || '_bigquery.' || db_prefix || '_factory.cost_allocation') ca ON m.machine_id = ca.machine_id
 GROUP BY m.machine_id, m.machine_name
@@ -326,22 +274,17 @@ ORDER BY downtime_incidents DESC;
 -- MAGIC %md
 -- MAGIC ## 2.4 全ソース統合テーブル (Factory Operations Union)
 -- MAGIC
--- MAGIC 全 5 ソースのデータを `machine_id` で統合し、1 つのテーブルに集約します。
--- MAGIC Lineage グラフで **全ソース → 1 テーブル** の統合フローが可視化されます。
+-- MAGIC 全 5 ソース (Redshift + PostgreSQL + Synapse + BigQuery) のデータを
+-- MAGIC `machine_id` で統合し、1 つのテーブルに集約します。
 
 -- COMMAND ----------
 
 EXECUTE IMMEDIATE
 'CREATE OR REPLACE TABLE ' || analysis_catalog || '.lhf_demo.factory_operations_union AS
-WITH glue_base AS (
+WITH machines_base AS (
   SELECT
     m.machine_id, m.machine_name, m.production_line, m.factory, m.status AS machine_status
-  FROM ' || catalog_prefix || '_glue.' || db_prefix || '_factory_master.machines m
-),
-glue_quality AS (
-  SELECT machine_id, COUNT(*) AS glue_inspection_count, SUM(defect_count) AS glue_defect_count
-  FROM ' || catalog_prefix || '_glue.' || db_prefix || '_factory_master.quality_inspections
-  GROUP BY machine_id
+  FROM ' || query_prefix || '_postgres.' || db_prefix || '.machines m
 ),
 redshift_sensors AS (
   SELECT machine_id,
@@ -356,6 +299,13 @@ redshift_events AS (
     COUNT(*) AS event_count,
     COUNT(CASE WHEN event_type = \'error\' THEN 1 END) AS error_count
   FROM ' || query_prefix || '_redshift.' || db_prefix || '.production_events
+  GROUP BY machine_id
+),
+redshift_quality AS (
+  SELECT machine_id,
+    COUNT(*) AS inspection_count,
+    SUM(defect_count) AS defect_count
+  FROM ' || query_prefix || '_redshift.' || db_prefix || '.quality_inspections
   GROUP BY machine_id
 ),
 postgres_maint AS (
@@ -391,14 +341,14 @@ bq_cost AS (
   GROUP BY machine_id
 )
 SELECT
-  gb.machine_id, gb.machine_name, gb.production_line, gb.factory, gb.machine_status,
-  COALESCE(gq.glue_inspection_count, 0) AS glue_inspection_count,
-  COALESCE(gq.glue_defect_count, 0) AS glue_defect_count,
+  mb.machine_id, mb.machine_name, mb.production_line, mb.factory, mb.machine_status,
   COALESCE(rs.sensor_reading_count, 0) AS sensor_reading_count,
   COALESCE(rs.sensor_warnings, 0) AS sensor_warnings,
   COALESCE(rs.sensor_criticals, 0) AS sensor_criticals,
   COALESCE(re.event_count, 0) AS production_event_count,
   COALESCE(re.error_count, 0) AS error_event_count,
+  COALESCE(rq.inspection_count, 0) AS inspection_count,
+  COALESCE(rq.defect_count, 0) AS defect_count,
   COALESCE(pm.maintenance_log_count, 0) AS maintenance_log_count,
   COALESCE(pw.work_order_count, 0) AS work_order_count,
   COALESCE(pw.open_work_orders, 0) AS open_work_orders,
@@ -408,16 +358,16 @@ SELECT
   COALESCE(se.energy_cost_usd, 0) AS energy_cost_usd,
   COALESCE(bd.downtime_incidents, 0) AS downtime_incidents,
   COALESCE(bc.allocated_cost_usd, 0) AS allocated_cost_usd
-FROM glue_base gb
-LEFT JOIN glue_quality gq ON gb.machine_id = gq.machine_id
-LEFT JOIN redshift_sensors rs ON gb.machine_id = rs.machine_id
-LEFT JOIN redshift_events re ON gb.machine_id = re.machine_id
-LEFT JOIN postgres_maint pm ON gb.machine_id = pm.machine_id
-LEFT JOIN postgres_wo pw ON gb.machine_id = pw.machine_id
-LEFT JOIN synapse_shifts ss ON gb.machine_id = ss.machine_id
-LEFT JOIN synapse_energy se ON gb.machine_id = se.machine_id
-LEFT JOIN bq_downtime bd ON gb.machine_id = bd.machine_id
-LEFT JOIN bq_cost bc ON gb.machine_id = bc.machine_id';
+FROM machines_base mb
+LEFT JOIN redshift_sensors rs ON mb.machine_id = rs.machine_id
+LEFT JOIN redshift_events re ON mb.machine_id = re.machine_id
+LEFT JOIN redshift_quality rq ON mb.machine_id = rq.machine_id
+LEFT JOIN postgres_maint pm ON mb.machine_id = pm.machine_id
+LEFT JOIN postgres_wo pw ON mb.machine_id = pw.machine_id
+LEFT JOIN synapse_shifts ss ON mb.machine_id = ss.machine_id
+LEFT JOIN synapse_energy se ON mb.machine_id = se.machine_id
+LEFT JOIN bq_downtime bd ON mb.machine_id = bd.machine_id
+LEFT JOIN bq_cost bc ON mb.machine_id = bc.machine_id';
 
 -- COMMAND ----------
 
@@ -432,20 +382,15 @@ ORDER BY machine_id;
 -- MAGIC 1. **Catalog Explorer** を開く（左サイドバー → Catalog）
 -- MAGIC 2. 分析カタログ → `lhf_demo` → `factory_operations_union` を選択
 -- MAGIC 3. **Lineage** タブをクリック
--- MAGIC 4. **全 5 ソース** (Glue, Redshift, PostgreSQL, Synapse, BigQuery) からの依存関係が 1 つのテーブルに集約されるグラフを確認
 -- MAGIC
 -- MAGIC ```
--- MAGIC  AWS Glue ──────────┐
--- MAGIC  Amazon Redshift ───┤
--- MAGIC  PostgreSQL ────────┼──▶ factory_operations_union
--- MAGIC  Azure Synapse ─────┤
+-- MAGIC  Amazon Redshift ───┐
+-- MAGIC  PostgreSQL ────────┤
+-- MAGIC  Azure Synapse ─────┼──▶ factory_operations_union
 -- MAGIC  Google BigQuery ───┘
 -- MAGIC ```
 -- MAGIC
--- MAGIC > **ポイント**: Federation 経由の外部テーブルからのデータの流れが、
--- MAGIC > Unity Catalog のリネージグラフで自動的に追跡されます。
--- MAGIC > `factory_operations_union` の Lineage を見ると、5 つの外部ソースから
--- MAGIC > データが統合されている全体像が一目でわかります。
+-- MAGIC > **ポイント**: 5 つの外部ソースからデータが統合されている全体像が一目でわかります。
 
 -- COMMAND ----------
 
@@ -511,9 +456,6 @@ EXECUTE IMMEDIATE 'SHOW GRANTS ON CATALOG ' || query_prefix || '_redshift';
 -- MAGIC | メンテナンス時間が最も長い機械は？ | total_maintenance_minutes の降順 |
 -- MAGIC | エネルギーコストが最も高い機械は？ | energy_cost_usd の降順 |
 -- MAGIC | A棟の機械の稼働状況を教えて | factory = 'A棟' のフィルタリング |
--- MAGIC
--- MAGIC > **ポイント**: Genie はテーブルスキーマとカラムコメント（日本語設定済み）を参照して
--- MAGIC > 適切な SQL を自動生成します。メタデータの品質が回答精度に直結します。
 
 -- COMMAND ----------
 
@@ -523,7 +465,7 @@ EXECUTE IMMEDIATE 'SHOW GRANTS ON CATALOG ' || query_prefix || '_redshift';
 -- MAGIC
 -- MAGIC | 章 | 実演内容 |
 -- MAGIC |----|---------|
--- MAGIC | **第1章** | 最大 6 ソース (Glue, Redshift, PostgreSQL, Synapse, BigQuery, OneLake) を Federation で統合 |
+-- MAGIC | **第1章** | 5 ソース (Redshift, PostgreSQL, Synapse, BigQuery) を Federation で統合 |
 -- MAGIC | **第2章** | クロスソース JOIN → `factory_operations_union` 作成 → リネージ可視化 |
 -- MAGIC | **第3章** | Federation カタログへの GRANT / REVOKE によるアクセス制御 |
 -- MAGIC | **第4章** | Genie で自然言語データ探索 |

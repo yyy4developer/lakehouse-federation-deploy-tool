@@ -14,8 +14,8 @@ locals {
   glue_role_name    = "${var.project_prefix}-databricks-glue"
   storage_role_name = "${var.project_prefix}-databricks-storage"
 
-  # Glue database name (underscores for SQL compatibility)
-  glue_database_name = replace("${var.project_prefix}_factory_master", "-", "_")
+  # Glue database name: uses db_prefix for consistency with other sources
+  glue_database_name = "${local.db_prefix}_factory_master"
 
   # Networking needed?
   needs_aws_networking = var.enable_redshift || (var.enable_postgres && var.cloud == "aws")

@@ -75,6 +75,18 @@ variable "catalog_prefix_catalog" {
   default     = "lhf_catalog"
 }
 
+variable "analysis_catalog" {
+  description = "Catalog name for analysis results (cross-source JOIN tables)"
+  type        = string
+  default     = "lhf_union_dbx"
+}
+
+variable "db_prefix" {
+  description = "Prefix for source database/schema names (e.g. lhf_uq6v_demo → lhf_uq6v_demo_factory)"
+  type        = string
+  default     = ""
+}
+
 # =============================================================================
 # Databricks
 # =============================================================================
@@ -171,6 +183,12 @@ variable "postgres_admin_password" {
 
 variable "fabric_workspace_id" {
   description = "Microsoft Fabric workspace ID (GUID). Leave empty to create new."
+  type        = string
+  default     = ""
+}
+
+variable "fabric_lakehouse_id" {
+  description = "Pre-existing Fabric Lakehouse ID (GUID). Set to skip lakehouse creation via REST API."
   type        = string
   default     = ""
 }

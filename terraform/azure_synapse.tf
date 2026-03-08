@@ -76,45 +76,69 @@ resource "null_resource" "synapse_init" {
   provisioner "local-exec" {
     command = <<-EOT
       SYNAPSE_ONDEMAND="${azurerm_synapse_workspace.demo[0].name}-ondemand.sql.azuresynapse.net"
+      DB_NAME="${local.synapse_db_name}"
 
-      echo "Waiting for firewall rules to propagate..."
-      sleep 20
+      echo "Waiting 60s for firewall rules to propagate..."
+      sleep 60
 
-      echo "Getting Azure AD token for serverless database creation..."
-      TOKEN=$(az account get-access-token --resource https://sql.azuresynapse.net --query accessToken -o tsv)
+      echo "Creating serverless database $DB_NAME..."
+      for i in $(seq 1 12); do
+        # Try to create the database
+        sqlcmd -S "$SYNAPSE_ONDEMAND" -d master --authentication-method=ActiveDirectoryDefault \
+          -Q "IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = '$DB_NAME') CREATE DATABASE $DB_NAME COLLATE Latin1_General_100_BIN2_UTF8" 2>&1 || true
 
-      echo "Creating serverless database ${local.synapse_db_name}..."
-      DB_CREATED=0
-      for i in 1 2 3 4 5; do
-        if sqlcmd -S "$SYNAPSE_ONDEMAND" -d master -P "$TOKEN" -G \
-          -Q "IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = '${local.synapse_db_name}') CREATE DATABASE ${local.synapse_db_name} COLLATE Latin1_General_100_BIN2_UTF8"; then
-          DB_CREATED=1
+        # Check if the database actually exists
+        DB_EXISTS=$(sqlcmd -S "$SYNAPSE_ONDEMAND" -d master --authentication-method=ActiveDirectoryDefault \
+          -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.databases WHERE name = '$DB_NAME'" -h -1 2>/dev/null | tr -d '[:space:]')
+        if [ "$DB_EXISTS" = "1" ]; then
+          echo "  Database $DB_NAME created/verified."
           break
         fi
-        echo "  Retry $i/5 (waiting 15s)..."
+        echo "  Attempt $i/12: database not ready yet (waiting 15s)..."
         sleep 15
       done
 
-      if [ "$DB_CREATED" -eq 0 ]; then
-        echo "ERROR: Failed to create database after 5 retries"
+      if [ "$DB_EXISTS" != "1" ]; then
+        echo "ERROR: Failed to create database $DB_NAME after 12 attempts"
         exit 1
       fi
 
-      echo "Setting up sqladmin user..."
-      for i in 1 2 3; do
-        if sqlcmd -S "$SYNAPSE_ONDEMAND" -d ${local.synapse_db_name} -P "$TOKEN" -G \
-          -Q "IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = 'sqladmin') CREATE USER sqladmin FROM LOGIN sqladmin; ALTER ROLE db_owner ADD MEMBER sqladmin;"; then
-          break
-        fi
-        echo "  Retry user setup $i/3..."
+      SCHEMA_NAME="${local.source_schema}"
+      echo "Creating schema $SCHEMA_NAME..."
+      for i in $(seq 1 5); do
+        sqlcmd -S "$SYNAPSE_ONDEMAND" -d $DB_NAME --authentication-method=ActiveDirectoryDefault \
+          -Q "IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = '$SCHEMA_NAME') EXEC('CREATE SCHEMA [$SCHEMA_NAME]')" 2>&1 && break
+        echo "  Retry schema creation $i/5 (waiting 10s)..."
         sleep 10
       done
 
       echo "Creating views with sample data..."
-      sqlcmd -S "$SYNAPSE_ONDEMAND" -d ${local.synapse_db_name} -U sqladmin -P '${var.synapse_admin_password}' \
-        -i ${path.module}/sql/synapse/create_shift_schedules.sql
-      sqlcmd -S "$SYNAPSE_ONDEMAND" -d ${local.synapse_db_name} -U sqladmin -P '${var.synapse_admin_password}' \
-        -i ${path.module}/sql/synapse/create_energy_consumption.sql
+      VIEW_OK=0
+      for i in $(seq 1 10); do
+        TMPF1=$(mktemp) && TMPF2=$(mktemp)
+        sed "s/dbo\./$SCHEMA_NAME./g" ${path.module}/sql/synapse/create_shift_schedules.sql > "$TMPF1"
+        sed "s/dbo\./$SCHEMA_NAME./g" ${path.module}/sql/synapse/create_energy_consumption.sql > "$TMPF2"
+        if sqlcmd -S "$SYNAPSE_ONDEMAND" -d $DB_NAME --authentication-method=ActiveDirectoryDefault \
+          -i "$TMPF1" && \
+           sqlcmd -S "$SYNAPSE_ONDEMAND" -d $DB_NAME --authentication-method=ActiveDirectoryDefault \
+          -i "$TMPF2"; then
+          VIEW_OK=1
+          rm -f "$TMPF1" "$TMPF2"
+          break
+        fi
+        rm -f "$TMPF1" "$TMPF2"
+        echo "  Retry view creation $i/10 (waiting 15s)..."
+        sleep 15
+      done
+
+      if [ "$VIEW_OK" -eq 0 ]; then
+        echo "ERROR: Failed to create views after retries"
+        exit 1
+      fi
+
+      echo "Verifying views..."
+      sqlcmd -S "$SYNAPSE_ONDEMAND" -d $DB_NAME --authentication-method=ActiveDirectoryDefault \
+        -Q "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='VIEW'"
 
       echo "Synapse initialization complete."
     EOT

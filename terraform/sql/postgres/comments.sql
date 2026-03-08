@@ -1,6 +1,14 @@
 -- テーブルコメント
+COMMENT ON TABLE machines IS '機械マスタ - 工場内全機械の製造ライン配置と稼働状態を管理';
 COMMENT ON TABLE maintenance_logs IS '保守ログ - 各機械の保守作業履歴を記録';
 COMMENT ON TABLE work_orders IS '作業指示書 - 保守作業の計画と進捗を管理';
+
+-- machines カラムコメント
+COMMENT ON COLUMN machines.machine_id IS '機械の一意識別子';
+COMMENT ON COLUMN machines.machine_name IS '機械の表示名（例：CNCミル01）';
+COMMENT ON COLUMN machines.production_line IS '製造ライン配置（ライン1、ライン2、ライン3）';
+COMMENT ON COLUMN machines.factory IS '工場建屋の所在地（A棟、B棟、C棟）';
+COMMENT ON COLUMN machines.status IS '現在の稼働状態：稼働中、メンテナンス中、停止中';
 
 -- maintenance_logs カラムコメント
 COMMENT ON COLUMN maintenance_logs.log_id IS '保守ログID';

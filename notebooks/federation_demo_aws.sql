@@ -3,31 +3,31 @@
 -- COMMAND ----------
 
 -- MAGIC %md
--- MAGIC # Lakehouse Federation デモ
+-- MAGIC # Lakehouse Federation デモ (AWS)
 -- MAGIC ## Unity Catalog による外部データソースの統合ガバナンス
 -- MAGIC
 -- MAGIC ---
 -- MAGIC
 -- MAGIC | 章 | テーマ | 内容 |
 -- MAGIC |----|--------|------|
--- MAGIC | **第1章** | メタデータ統合 | Lakehouse Federation で外部データソースをクエリ |
+-- MAGIC | **第1章** | メタデータ統合 | 6 ソースを Lakehouse Federation でクエリ |
 -- MAGIC | **第2章** | クロスソース分析 | 複数ソースを JOIN してリネージを可視化 |
 -- MAGIC | **第3章** | アクセス制御 | Federation カタログへの権限管理 |
 -- MAGIC | **第4章** | AI 活用 | Genie で自然言語データ探索 |
+-- MAGIC
+-- MAGIC **接続ソース**: AWS Glue / Amazon Redshift / PostgreSQL (RDS) / Azure Synapse / Google BigQuery
 
 -- COMMAND ----------
 
 -- MAGIC %md
 -- MAGIC ## 設定
--- MAGIC
--- MAGIC デプロイ時に自動設定されます。手動で変更する場合は以下を編集してください。
 
 -- COMMAND ----------
 
-DECLARE OR REPLACE query_prefix STRING DEFAULT 'lhf_query';
-DECLARE OR REPLACE catalog_prefix STRING DEFAULT 'lhf_catalog';
-DECLARE OR REPLACE db_prefix STRING DEFAULT 'lhf_demo';
-DECLARE OR REPLACE analysis_catalog STRING DEFAULT 'main';
+DECLARE OR REPLACE query_prefix STRING DEFAULT 'lhf_xb5v_demo_query';
+DECLARE OR REPLACE catalog_prefix STRING DEFAULT 'lhf_xb5v_demo_catalog';
+DECLARE OR REPLACE db_prefix STRING DEFAULT 'lhf_xb5v_demo';
+DECLARE OR REPLACE analysis_catalog STRING DEFAULT 'lhf_xb5v_demo_union_dbx';
 
 -- COMMAND ----------
 
@@ -35,34 +35,26 @@ DECLARE OR REPLACE analysis_catalog STRING DEFAULT 'main';
 -- MAGIC ---
 -- MAGIC # 第1章: メタデータ統合 — Lakehouse Federation
 -- MAGIC
--- MAGIC Lakehouse Federation により、外部データソースのメタデータを Unity Catalog に統合し、
--- MAGIC **データを移動せずに** 一元管理・クエリします。
--- MAGIC
 -- MAGIC ```
 -- MAGIC ┌──────────────────────────────────────────────────────────────────────────────┐
 -- MAGIC │                          Databricks Unity Catalog                            │
 -- MAGIC │                                                                              │
--- MAGIC │  Catalog Federation                    Query Federation                      │
--- MAGIC │  ┌─────────────────┐   ┌─────────────────┐ ┌─────────────────┐              │
--- MAGIC │  │  *_catalog_glue │   │ *_query_redshift │ │ *_query_postgres│              │
--- MAGIC │  │  (S3 直接読取)  │   │ (JDBC pushdown)  │ │ (JDBC pushdown) │              │
--- MAGIC │  └────────┬────────┘   └────────┬─────────┘ └────────┬────────┘              │
--- MAGIC │           │            ┌────────┴─────────┐ ┌────────┴────────┐              │
--- MAGIC │           │            │ *_query_synapse   │ │ *_query_bigquery│              │
--- MAGIC │           │            │ (JDBC pushdown)   │ │ (JDBC pushdown) │              │
--- MAGIC │           │            └────────┬──────────┘ └────────┬────────┘              │
--- MAGIC └───────────┼─────────────────────┼──────────────────────┼─────────────────────┘
--- MAGIC             │                     │                      │
--- MAGIC    ┌────────▼──────┐   ┌─────────▼───────┐   ┌─────────▼──────┐
--- MAGIC    │ AWS Glue / S3 │   │ Redshift /       │   │ BigQuery       │
--- MAGIC    │               │   │ PostgreSQL /     │   │                │
--- MAGIC    │               │   │ Synapse (JDBC)   │   │                │
--- MAGIC    └───────────────┘   └─────────────────┘   └────────────────┘
+-- MAGIC │  Catalog Federation              Query Federation                            │
+-- MAGIC │  ┌─────────────────┐   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
+-- MAGIC │  │  *_catalog_glue │   │ Redshift │ │ Postgres │ │ Synapse  │ │ BigQuery │ │
+-- MAGIC │  │  (S3 直接読取)  │   │  (JDBC)  │ │  (JDBC)  │ │  (JDBC)  │ │  (JDBC)  │ │
+-- MAGIC │  └────────┬────────┘   └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ │
+-- MAGIC └───────────┼────────────────┼──────────────┼────────────┼────────────┼───────┘
+-- MAGIC             │                │              │            │            │
+-- MAGIC    ┌────────▼──────┐  ┌─────▼──────┐ ┌────▼────┐ ┌────▼────┐ ┌────▼────┐
+-- MAGIC    │ AWS Glue / S3 │  │  Redshift  │ │  RDS    │ │ Synapse │ │ BigQuery│
+-- MAGIC    └───────────────┘  └────────────┘ │ Postgres│ │ (Azure) │ │  (GCP)  │
+-- MAGIC                                      └─────────┘ └─────────┘ └─────────┘
 -- MAGIC ```
 -- MAGIC
 -- MAGIC | 方式 | 対象 | 仕組み |
 -- MAGIC |------|------|--------|
--- MAGIC | **Catalog Federation** | Glue, OneLake | メタデータ API 経由 → ストレージ直接読取 (Spark) |
+-- MAGIC | **Catalog Federation** | AWS Glue | メタデータ API 経由 → S3 直接読取 (Spark) |
 -- MAGIC | **Query Federation** | Redshift, PostgreSQL, Synapse, BigQuery | JDBC 経由でクエリをプッシュダウン |
 
 -- COMMAND ----------
@@ -73,6 +65,8 @@ DECLARE OR REPLACE analysis_catalog STRING DEFAULT 'main';
 -- MAGIC
 -- MAGIC Glue Data Catalog のテーブルを Unity Catalog 経由で透過的に参照。
 -- MAGIC Databricks は **S3 上のデータを直接読み取り**、Spark エンジンで処理します。
+-- MAGIC
+-- MAGIC 3 つのフォーマット (Parquet / Delta / Iceberg) を **透過的に** 扱えます。
 
 -- COMMAND ----------
 
@@ -86,7 +80,7 @@ SELECT * FROM IDENTIFIER(catalog_prefix || '_glue.' || db_prefix || '_factory_ma
 
 -- COMMAND ----------
 
--- 品質検査 (Iceberg) — 3つのフォーマットを透過的に扱える
+-- 品質検査 (Iceberg)
 SELECT * FROM IDENTIFIER(catalog_prefix || '_glue.' || db_prefix || '_factory_master.quality_inspections');
 
 -- COMMAND ----------
@@ -119,8 +113,13 @@ SELECT * FROM IDENTIFIER(query_prefix || '_redshift.' || db_prefix || '.quality_
 -- MAGIC ---
 -- MAGIC ## 1.3 Query Federation: PostgreSQL
 -- MAGIC
--- MAGIC PostgreSQL (AWS RDS / Azure Flexible Server) に JDBC 経由でクエリを発行。
--- MAGIC 保守ログや作業指示書など運用系データを参照します。
+-- MAGIC PostgreSQL (AWS RDS) に JDBC 経由でクエリを発行。
+-- MAGIC 機械マスタ、保守ログ、作業指示書など運用系データを参照します。
+
+-- COMMAND ----------
+
+-- 機械マスタ
+SELECT * FROM IDENTIFIER(query_prefix || '_postgres.' || db_prefix || '.machines');
 
 -- COMMAND ----------
 
@@ -174,25 +173,6 @@ SELECT * FROM IDENTIFIER(query_prefix || '_bigquery.' || db_prefix || '_factory.
 
 -- MAGIC %md
 -- MAGIC ---
--- MAGIC ## 1.6 Catalog Federation: Microsoft OneLake (Fabric)
--- MAGIC
--- MAGIC Microsoft Fabric の OneLake に格納されたデータを
--- MAGIC Catalog Federation 経由で透過的に参照します。
-
--- COMMAND ----------
-
--- 生産計画
-SELECT * FROM IDENTIFIER(catalog_prefix || '_onelake.default.production_plans');
-
--- COMMAND ----------
-
--- 在庫水準
-SELECT * FROM IDENTIFIER(catalog_prefix || '_onelake.default.inventory_levels');
-
--- COMMAND ----------
-
--- MAGIC %md
--- MAGIC ---
 -- MAGIC # 第2章: クロスソース分析とリネージ
 -- MAGIC
 -- MAGIC 複数の Federation ソースを **クロスソース JOIN** して分析テーブルを作成し、
@@ -214,6 +194,7 @@ CREATE SCHEMA IF NOT EXISTS IDENTIFIER(analysis_catalog || '.lhf_demo');
 -- MAGIC
 -- MAGIC Glue (マスタ) + Redshift (トランザクション) をクロスソース JOIN し、
 -- MAGIC 機械ごとの総合ヘルスサマリーを作成します。
+-- MAGIC Glue (Iceberg) と Redshift の品質検査データを **UNION ALL** で統合。
 
 -- COMMAND ----------
 
@@ -326,8 +307,8 @@ ORDER BY downtime_incidents DESC;
 -- MAGIC %md
 -- MAGIC ## 2.4 全ソース統合テーブル (Factory Operations Union)
 -- MAGIC
--- MAGIC 全 5 ソースのデータを `machine_id` で統合し、1 つのテーブルに集約します。
--- MAGIC Lineage グラフで **全ソース → 1 テーブル** の統合フローが可視化されます。
+-- MAGIC 全 6 ソース (Glue + Redshift + PostgreSQL + Synapse + BigQuery) のデータを
+-- MAGIC `machine_id` で統合し、1 つのテーブルに集約します。
 
 -- COMMAND ----------
 
@@ -356,6 +337,11 @@ redshift_events AS (
     COUNT(*) AS event_count,
     COUNT(CASE WHEN event_type = \'error\' THEN 1 END) AS error_count
   FROM ' || query_prefix || '_redshift.' || db_prefix || '.production_events
+  GROUP BY machine_id
+),
+redshift_quality AS (
+  SELECT machine_id, COUNT(*) AS redshift_inspection_count, SUM(defect_count) AS redshift_defect_count
+  FROM ' || query_prefix || '_redshift.' || db_prefix || '.quality_inspections
   GROUP BY machine_id
 ),
 postgres_maint AS (
@@ -399,6 +385,8 @@ SELECT
   COALESCE(rs.sensor_criticals, 0) AS sensor_criticals,
   COALESCE(re.event_count, 0) AS production_event_count,
   COALESCE(re.error_count, 0) AS error_event_count,
+  COALESCE(rq.redshift_inspection_count, 0) AS redshift_inspection_count,
+  COALESCE(rq.redshift_defect_count, 0) AS redshift_defect_count,
   COALESCE(pm.maintenance_log_count, 0) AS maintenance_log_count,
   COALESCE(pw.work_order_count, 0) AS work_order_count,
   COALESCE(pw.open_work_orders, 0) AS open_work_orders,
@@ -412,6 +400,7 @@ FROM glue_base gb
 LEFT JOIN glue_quality gq ON gb.machine_id = gq.machine_id
 LEFT JOIN redshift_sensors rs ON gb.machine_id = rs.machine_id
 LEFT JOIN redshift_events re ON gb.machine_id = re.machine_id
+LEFT JOIN redshift_quality rq ON gb.machine_id = rq.machine_id
 LEFT JOIN postgres_maint pm ON gb.machine_id = pm.machine_id
 LEFT JOIN postgres_wo pw ON gb.machine_id = pw.machine_id
 LEFT JOIN synapse_shifts ss ON gb.machine_id = ss.machine_id
@@ -432,7 +421,6 @@ ORDER BY machine_id;
 -- MAGIC 1. **Catalog Explorer** を開く（左サイドバー → Catalog）
 -- MAGIC 2. 分析カタログ → `lhf_demo` → `factory_operations_union` を選択
 -- MAGIC 3. **Lineage** タブをクリック
--- MAGIC 4. **全 5 ソース** (Glue, Redshift, PostgreSQL, Synapse, BigQuery) からの依存関係が 1 つのテーブルに集約されるグラフを確認
 -- MAGIC
 -- MAGIC ```
 -- MAGIC  AWS Glue ──────────┐
@@ -442,10 +430,7 @@ ORDER BY machine_id;
 -- MAGIC  Google BigQuery ───┘
 -- MAGIC ```
 -- MAGIC
--- MAGIC > **ポイント**: Federation 経由の外部テーブルからのデータの流れが、
--- MAGIC > Unity Catalog のリネージグラフで自動的に追跡されます。
--- MAGIC > `factory_operations_union` の Lineage を見ると、5 つの外部ソースから
--- MAGIC > データが統合されている全体像が一目でわかります。
+-- MAGIC > **ポイント**: 6 つの外部ソースからデータが統合されている全体像が一目でわかります。
 
 -- COMMAND ----------
 
@@ -511,9 +496,6 @@ EXECUTE IMMEDIATE 'SHOW GRANTS ON CATALOG ' || query_prefix || '_redshift';
 -- MAGIC | メンテナンス時間が最も長い機械は？ | total_maintenance_minutes の降順 |
 -- MAGIC | エネルギーコストが最も高い機械は？ | energy_cost_usd の降順 |
 -- MAGIC | A棟の機械の稼働状況を教えて | factory = 'A棟' のフィルタリング |
--- MAGIC
--- MAGIC > **ポイント**: Genie はテーブルスキーマとカラムコメント（日本語設定済み）を参照して
--- MAGIC > 適切な SQL を自動生成します。メタデータの品質が回答精度に直結します。
 
 -- COMMAND ----------
 
@@ -523,7 +505,7 @@ EXECUTE IMMEDIATE 'SHOW GRANTS ON CATALOG ' || query_prefix || '_redshift';
 -- MAGIC
 -- MAGIC | 章 | 実演内容 |
 -- MAGIC |----|---------|
--- MAGIC | **第1章** | 最大 6 ソース (Glue, Redshift, PostgreSQL, Synapse, BigQuery, OneLake) を Federation で統合 |
+-- MAGIC | **第1章** | 6 ソース (Glue, Redshift, PostgreSQL, Synapse, BigQuery) を Federation で統合 |
 -- MAGIC | **第2章** | クロスソース JOIN → `factory_operations_union` 作成 → リネージ可視化 |
 -- MAGIC | **第3章** | Federation カタログへの GRANT / REVOKE によるアクセス制御 |
 -- MAGIC | **第4章** | Genie で自然言語データ探索 |

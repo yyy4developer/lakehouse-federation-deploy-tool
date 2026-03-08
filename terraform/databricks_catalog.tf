@@ -83,6 +83,22 @@ resource "databricks_catalog" "bigquery" {
 }
 
 # -----------------------------------------------------------------------------
+# Union Catalog: Analysis results (machine_health_summary etc.)
+# On Azure: requires explicit storage_root (no metastore-level storage root)
+# -----------------------------------------------------------------------------
+resource "databricks_catalog" "union" {
+  name          = var.analysis_catalog
+  comment       = "分析結果カタログ: クロスソース JOIN テーブルを格納（machine_health_summary 等）"
+  force_destroy = true
+
+  storage_root = var.cloud == "azure" ? (
+    "abfss://${azurerm_storage_container.catalog[0].name}@${azurerm_storage_account.catalog[0].name}.dfs.core.windows.net/${var.analysis_catalog}"
+  ) : null
+
+  depends_on = [databricks_external_location.catalog]
+}
+
+# -----------------------------------------------------------------------------
 # Catalog Federation: OneLake
 # -----------------------------------------------------------------------------
 resource "databricks_catalog" "onelake" {

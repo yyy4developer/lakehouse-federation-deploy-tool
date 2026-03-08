@@ -42,14 +42,17 @@ locals {
   # Random suffix for catalog prefix uniqueness (appended only when using defaults)
   suffix = random_string.suffix.result
 
-  # Sanitized project prefix for database/schema names (replace - with _)
-  db_prefix = replace(var.project_prefix, "-", "_")
+  # Database/schema prefix: use var.db_prefix if set, otherwise fall back to project_prefix
+  db_prefix = var.db_prefix != "" ? var.db_prefix : replace(var.project_prefix, "-", "_")
 
   # Source database/schema names: {db_prefix}_factory
   redshift_db_name  = "${local.db_prefix}_factory"
   postgres_db_name  = "${local.db_prefix}_factory"
   synapse_db_name   = "${local.db_prefix}_factory"
   bigquery_dataset  = "${local.db_prefix}_factory"
+
+  # Custom schema name within each source database (replaces public/dbo)
+  source_schema = local.db_prefix
 }
 
 # -----------------------------------------------------------------------------

@@ -4,6 +4,7 @@
 *.tfstate.backup
 *.tfstate.*.backup
 terraform.tfvars
+terraform.tfvars.*
 crash.log
 override.tf
 override.tf.json
@@ -38,6 +39,7 @@ tfplan
 
 # Deploy output (generated per deploy)
 deploy_result.md
+.deploy_state.json
 
 # Generated notebook (built from template per deploy)
 notebooks/federation_demo.sql

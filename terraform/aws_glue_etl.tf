@@ -116,25 +116,41 @@ resource "null_resource" "run_glue_job" {
 
   provisioner "local-exec" {
     command = <<-EOT
-      echo "Starting Glue job: ${aws_glue_job.data_generator[0].name}"
-      RUN_ID=$(aws glue start-job-run --job-name "${aws_glue_job.data_generator[0].name}" --region "${var.aws_region}" --query 'JobRunId' --output text)
-      echo "Job run ID: $RUN_ID"
+      echo "Waiting 15s for IAM role propagation..."
+      sleep 15
 
-      while true; do
-        STATUS=$(aws glue get-job-run --job-name "${aws_glue_job.data_generator[0].name}" --run-id "$RUN_ID" --region "${var.aws_region}" --query 'JobRun.JobRunState' --output text)
-        echo "Status: $STATUS"
-        if [ "$STATUS" = "SUCCEEDED" ]; then
-          echo "Glue job completed successfully."
-          break
-        elif [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "STOPPED" ] || [ "$STATUS" = "ERROR" ] || [ "$STATUS" = "TIMEOUT" ]; then
-          echo "Glue job failed with status: $STATUS"
-          aws glue get-job-run --job-name "${aws_glue_job.data_generator[0].name}" --run-id "$RUN_ID" --region "${var.aws_region}" --query 'JobRun.ErrorMessage' --output text
-          exit 1
-        fi
-        sleep 15
+      JOB_NAME="${aws_glue_job.data_generator[0].name}"
+      REGION="${var.aws_region}"
+
+      # Retry Glue job start up to 3 times (IAM propagation may need more time)
+      for attempt in 1 2 3; do
+        echo "Starting Glue job: $JOB_NAME (attempt $attempt)"
+        RUN_ID=$(aws glue start-job-run --job-name "$JOB_NAME" --region "$REGION" --query 'JobRunId' --output text)
+        echo "Job run ID: $RUN_ID"
+
+        while true; do
+          STATUS=$(aws glue get-job-run --job-name "$JOB_NAME" --run-id "$RUN_ID" --region "$REGION" --query 'JobRun.JobRunState' --output text)
+          echo "Status: $STATUS"
+          if [ "$STATUS" = "SUCCEEDED" ]; then
+            echo "Glue job completed successfully."
+            exit 0
+          elif [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "STOPPED" ] || [ "$STATUS" = "ERROR" ] || [ "$STATUS" = "TIMEOUT" ]; then
+            ERR=$(aws glue get-job-run --job-name "$JOB_NAME" --run-id "$RUN_ID" --region "$REGION" --query 'JobRun.ErrorMessage' --output text)
+            echo "Glue job failed: $ERR"
+            if echo "$ERR" | grep -q "assume role"; then
+              echo "IAM role not ready. Waiting 20s before retry..."
+              sleep 20
+              break
+            fi
+            exit 1
+          fi
+          sleep 15
+        done
       done
+      echo "ERROR: Glue job failed after 3 attempts"
+      exit 1
     EOT
   }
 
-  depends_on = [aws_glue_job.data_generator, aws_s3_object.glue_script]
+  depends_on = [aws_glue_job.data_generator, aws_s3_object.glue_script, aws_iam_role_policy_attachment.glue_etl_service]
 }
